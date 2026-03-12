@@ -292,7 +292,7 @@ jobs:
         run: |
           cd kernel_workspace
           echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
-          printf '%s\n' 'KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Re-TG@qdykernel"' >>  ./common/arch/arm64/configs/gki_defconfig
+          printf '%s\n' 'KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Email:admin@kernelsu.cc"' >>  ./common/arch/arm64/configs/gki_defconfig
           
           if [[ "${{ env.ENABLE_KPM }}" == "true" ]]; then
             echo "CONFIG_KPM=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -302,7 +302,7 @@ jobs:
 
           if [[ "${{ env.KSU_TYPE }}" == "ReSukiSU" ]]; then
             echo "CONFIG_KSU_MULTI_MANAGER_SUPPORT=y" >> ./common/arch/arm64/configs/gki_defconfig
-            echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Re-TG@qdykernel"' >> ./common/arch/arm64/configs/gki_defconfig
+            echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Email:admin@kernelsu.cc"' >> ./common/arch/arm64/configs/gki_defconfig
           fi
           
           echo "CONFIG_CRYPTO_LZ4=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -345,6 +345,27 @@ jobs:
           #Remove check_defconfig
           sudo sed -i 's/check_defconfig//' ./common/build.config.gki
 
+      - name: 🎮 Apply GameSense patches
+        run: |
+          echo "正在下载并应用 GameSense 补丁..."
+          cd kernel_workspace/common
+          mkdir -p /tmp/gamesense
+          PATCH_FILES=$(curl -LSs -H "Authorization: token ${{ secrets.Patch_TOKEN }}" \
+            "https://api.github.com/repos/Ray170910/gamesense-ksu-module/contents/V1-B" \
+            | jq -r '.[] | select(.name | endswith(".patch")) | .name')
+          for patch_name in $PATCH_FILES; do
+            echo "[GameSense] 下载 $patch_name ..."
+            curl -LSs -H "Authorization: token ${{ secrets.Patch_TOKEN }}" \
+              "https://raw.githubusercontent.com/Ray170910/gamesense-ksu-module/main/V1-B/$patch_name" \
+              -o "/tmp/gamesense/$patch_name"
+            if [ -f "/tmp/gamesense/$patch_name" ]; then
+              echo "[GameSense] 应用 $patch_name ..."
+              patch -p1 < "/tmp/gamesense/$patch_name" || \
+              patch -p1 --fuzz=3 < "/tmp/gamesense/$patch_name" || true
+            fi
+          done
+          echo "✅ GameSense 补丁应用完成"
+          
       - name: 🔧 Set Kernel name (写入内核名称)
         run: |
           cd kernel_workspace
