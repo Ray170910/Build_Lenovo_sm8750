@@ -56,11 +56,11 @@ on:
         default: true
         type: boolean
       
-      enable_susfs:
-        description: "启用SUSFS"
-        required: true
-        default: true
-        type: boolean
+      # enable_susfs:
+      #   description: "启用SUSFS"
+      #   required: true
+      #   default: true
+      #   type: boolean
 
       enable_signed:
         description: "使用AOSP密钥签名boot"
@@ -84,7 +84,7 @@ jobs:
       ENABLE_DROIDSPACES: ${{ github.event.inputs.enable_droidspaces }}
       ENABLE_BBG: ${{ github.event.inputs.enable_bbg }}
       ENABLE_KPM: ${{ github.event.inputs.enable_kpm }}
-      ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
+      # ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
       ENABLE_SIGNED: ${{ github.event.inputs.enable_signed }}
     steps:
       - uses: actions/checkout@v5
@@ -445,35 +445,36 @@ jobs:
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' ./common/security/Kconfig
 
       
-      - name: ⚙️ Set ReSukiSU (设置ReSukiSU)
-        run: |
-          cd kernel_workspace
-          echo "正在配置ReSukiSU..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s dev
-          cd ./KernelSU 
-          KSU_VERSION=$(expr $(git rev-list --count origin/dev 2>/dev/null) + 30700 2>/dev/null || echo 114514)
-          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-          echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
+      # ==================== KSU/SUSFS 已禁用 ====================
+      # - name: ⚙️ Set ReSukiSU (设置ReSukiSU)
+      #   run: |
+      #     cd kernel_workspace
+      #     echo "正在配置ReSukiSU..."
+      #     curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s dev
+      #     cd ./KernelSU
+      #     KSU_VERSION=$(expr $(git rev-list --count origin/dev 2>/dev/null) + 30700 2>/dev/null || echo 114514)
+      #     echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+      #     echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
 
-      - name: 🔧 Set up SUSFS (配置 SUSFS)
-        if: ${{ env.ENABLE_SUSFS == 'true' }}
-        run: |
-          cd kernel_workspace
-          git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-android15-6.6
-          wget https://raw.githubusercontent.com/cctv18/oppo_oplus_realme_sm8750/main/other_patch/69_hide_stuff.patch -O ./common/69_hide_stuff.patch
-          cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch ./common/
-          cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-          cd ./common
-          patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch || true
-          patch -p1 -N -F 3 < 69_hide_stuff.patch || true
-          case "${{ env.KERNEL_VERSION }}" in
-            6.6.56)
-              echo "[INFO] 当前构建内核版本为6.6.56，正在修复 undeclared identifier 'vma' 编译错误"
-              cd ./fs/proc
-              sed -i 's/vma = find_vma(mm, start_vaddr);/struct vm_area_struct *vma = find_vma(mm, start_vaddr);/' task_mmu.c
-              ;;
-          esac
+      # - name: 🔧 Set up SUSFS (配置 SUSFS)
+      #   if: ${{ env.ENABLE_SUSFS == 'true' }}
+      #   run: |
+      #     cd kernel_workspace
+      #     git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-android15-6.6
+      #     wget https://raw.githubusercontent.com/cctv18/oppo_oplus_realme_sm8750/main/other_patch/69_hide_stuff.patch -O ./common/69_hide_stuff.patch
+      #     cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch ./common/
+      #     cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
+      #     cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+      #     cd ./common
+      #     patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch || true
+      #     patch -p1 -N -F 3 < 69_hide_stuff.patch || true
+      #     case "${{ env.KERNEL_VERSION }}" in
+      #       6.6.56)
+      #         echo "[INFO] 当前构建内核版本为6.6.56，正在修复 undeclared identifier 'vma' 编译错误"
+      #         cd ./fs/proc
+      #         sed -i 's/vma = find_vma(mm, start_vaddr);/struct vm_area_struct *vma = find_vma(mm, start_vaddr);/' task_mmu.c
+      #         ;;
+      #     esac
 
       - name: 🔧 Apply Droidspaces SYSVIPC kABI fix (应用 Droidspaces SYSVIPC kABI 修复)
         if: ${{ env.ENABLE_DROIDSPACES == 'true' }}
@@ -627,32 +628,32 @@ jobs:
             echo "==> Droidspaces 内核配置完成"
           fi
 
-          # ==================== KSU 配置 ====================
-          echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+          # ==================== KSU 配置 (KSU已禁用, 仅保留KPM) ====================
+          # echo "CONFIG_KSU=y" >> "$DEFCONFIG"
           echo "CONFIG_KPM=y" >> "$DEFCONFIG"
 
-          echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Re-TG@qdykernel"' >> "$DEFCONFIG"
+          # echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Re-TG@qdykernel"' >> "$DEFCONFIG"
 
-          # ==================== SUSFS 配置 ====================
-          if [ "${{ env.ENABLE_SUSFS }}" == 'true' ];then
-            echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> "$DEFCONFIG"
-          else
-            echo "未启用SUSFS 跳过SUSFS配置"
-          fi
+          # ==================== SUSFS 配置 (已禁用) ====================
+          # if [ "${{ env.ENABLE_SUSFS }}" == 'true' ];then
+          #   echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
+          #   echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> "$DEFCONFIG"
+          # else
+          #   echo "未启用SUSFS 跳过SUSFS配置"
+          # fi
           
           echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -867,7 +868,7 @@ jobs:
         if: ${{ env.ENABLE_SIGNED == 'true' }}
         uses: actions/upload-artifact@v5
         with:
-         name: Boot_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_ReSukiSU_AOSP_Signed
+         name: Boot_${{ env.KERNEL_VERSION }}_AOSP_Signed
          path: kernel_workspace/boot_avb_tool/AOSP-Testkey-BootSigner-main/boot.img
 
   upload_rekernel:
