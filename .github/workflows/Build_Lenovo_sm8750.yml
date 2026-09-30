@@ -476,6 +476,13 @@ jobs:
       #         ;;
       #     esac
 
+      - name: 🔧 Fix task_mmu.c undeclared vma (6.6.56 通用编译修复, 非susfs专属)
+        if: ${{ env.KERNEL_VERSION == '6.6.56' }}
+        run: |
+          cd kernel_workspace/common/fs/proc
+          echo "[INFO] 当前构建内核版本为6.6.56，正在修复 undeclared identifier 'vma' 编译错误"
+          sed -i 's/vma = find_vma(mm, start_vaddr);/struct vm_area_struct *vma = find_vma(mm, start_vaddr);/' task_mmu.c
+
       - name: 🔧 Apply Droidspaces SYSVIPC kABI fix (应用 Droidspaces SYSVIPC kABI 修复)
         if: ${{ env.ENABLE_DROIDSPACES == 'true' }}
         working-directory: kernel_workspace/common
