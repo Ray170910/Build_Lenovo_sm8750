@@ -40,7 +40,7 @@ permissions:
 
 jobs:
   cleanup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: 安装 GitHub CLI 和 jq

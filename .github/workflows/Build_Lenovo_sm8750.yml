@@ -35,7 +35,7 @@ on:
       enable_ReKernel:
         description: "启用Re-Kernel支持"
         required: false
-        default: true
+        default: false
         type: boolean
       
       enable_Adios:
@@ -45,13 +45,18 @@ on:
         type: boolean
 
       enable_droidspaces:
-        description: "添加 Droidspaces"
+        description: "Droidspaces 容器支持（推荐678槽位）"
         required: true
-        default: false
-        type: boolean
+        default: "678"
+        type: choice
+        options:
+          - "off"
+          - "678"
+          - "123"
+          - "345"
 
-      enable_kpm:
-        description: "启用KPM"
+      enable_droidspaces_ntsync:
+        description: "启用 Droidspaces 容器 NTSync 支持（需启用 Droidspaces）"
         required: false
         default: true
         type: boolean
@@ -73,7 +78,7 @@ on:
 jobs:
   build:
     name: Build_${{ github.event.inputs.kernel_version }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       KERNEL_VERSION: ${{ github.event.inputs.kernel_version }}
@@ -82,6 +87,7 @@ jobs:
       ENABLE_REKERNEL: ${{ github.event.inputs.enable_ReKernel }}
       ENABLE_ADIOS: ${{ github.event.inputs.enable_Adios }}
       ENABLE_DROIDSPACES: ${{ github.event.inputs.enable_droidspaces }}
+      ENABLE_DROIDSPACES_NTSYNC: ${{ github.event.inputs.enable_droidspaces_ntsync }}
       ENABLE_BBG: ${{ github.event.inputs.enable_bbg }}
       ENABLE_KPM: ${{ github.event.inputs.enable_kpm }}
       # ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
@@ -226,7 +232,7 @@ jobs:
       - name: 🔎 Find public ccache in releases (查找公共缓存)
         id: public-ccache
         if: ${{ steps.ccache-restore.outputs.cache-matched-key == '' }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           PUBLIC_CACHE_REPO: ${{ vars.PUBLIC_CACHE_REPO }}
           PUBLIC_CACHE_TAG: ${{ vars.PUBLIC_CACHE_TAG }}
@@ -445,17 +451,7 @@ jobs:
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' ./common/security/Kconfig
 
       
-      # ==================== KSU/SUSFS 已禁用 ====================
-      # - name: ⚙️ Set ReSukiSU (设置ReSukiSU)
-      #   run: |
-      #     cd kernel_workspace
-      #     echo "正在配置ReSukiSU..."
-      #     curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s dev
-      #     cd ./KernelSU
-      #     KSU_VERSION=$(expr $(git rev-list --count origin/dev 2>/dev/null) + 30700 2>/dev/null || echo 114514)
-      #     echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-      #     echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
-
+      # ==================== KSU/SUSFS 已禁用 =============
       # - name: 🔧 Set up SUSFS (配置 SUSFS)
       #   if: ${{ env.ENABLE_SUSFS == 'true' }}
       #   run: |
@@ -476,39 +472,54 @@ jobs:
       #         ;;
       #     esac
 
-      - name: 🔧 Apply Droidspaces SYSVIPC kABI fix (应用 Droidspaces SYSVIPC kABI 修复)
-        if: ${{ env.ENABLE_DROIDSPACES == 'true' }}
+      - name: 🔧 Clone Droidspaces Patches (克隆 Droidspaces 补丁仓库)
+        if: ${{ env.ENABLE_DROIDSPACES != 'off' }}
+        run: |
+          git clone --depth 1 https://github.com/ravindu644/Droidspaces-OSS.git /tmp/Droidspaces-OSS
+          echo "DROIDSPACES_PATCHES=/tmp/Droidspaces-OSS/Documentation/resources/kernel-patches/GKI" >> $GITHUB_ENV
+
+      - name: 🔧 Apply Droidspaces SYSVIPC kABI fix (集成 Droidspaces 支持)
+        if: ${{ env.ENABLE_DROIDSPACES != 'off' }}
         working-directory: kernel_workspace/common
         run: |
-          echo "==> 开始应用 Droidspaces SYSVIPC kABI 修复补丁..."
-          KABI_PATCH="${GITHUB_WORKSPACE}/patch/GKI-6.6-sysvipc_kabi_3_4_5.patch"
-          if [ ! -f "$KABI_PATCH" ]; then
-            echo "::error::未找到 Droidspaces SYSVIPC kABI 补丁: $KABI_PATCH"
+          KERNEL_VER="6.6"
+          SLOT="${{ env.ENABLE_DROIDSPACES }}"
+
+          # 678 -> 6_7_8, 123 -> 1_2_3, 345 -> 3_4_5
+          SLOT_NAME=$(echo "$SLOT" | sed 's/\(.\)/\1_/g; s/_$//')
+          echo "应用 Droidspaces SYSVIPC kABI 修复补丁 (槽位: $SLOT / $SLOT_NAME)..."
+
+          PATCH_FILE="$DROIDSPACES_PATCHES/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_${SLOT_NAME}.patch"
+
+          if [ ! -f "$PATCH_FILE" ]; then
+            echo "::error::未找到 Droidspaces SYSVIPC kABI 补丁: $PATCH_FILE"
             exit 1
           fi
-          if ! patch -p1 --forward < "$KABI_PATCH"; then
+
+          if ! patch -p1 --forward < "$PATCH_FILE"; then
             echo "::warning::SYSVIPC kABI 补丁应用失败，可能已应用或上下文不匹配"
           fi
-          echo "==> Droidspaces SYSVIPC kABI 修复完成"
 
-      - name: 🔧 Apply ntsync Patch (应用 ntsync 补丁)
-        if: ${{ env.ENABLE_DROIDSPACES == 'true' }}
+          echo "✅ Droidspaces SYSVIPC kABI 修复完成"
+
+      - name: 🔧 Apply NTSync Patch (注入 NTSync 内核配置)
+        if: ${{ env.ENABLE_DROIDSPACES != 'off' && env.ENABLE_DROIDSPACES_NTSYNC == 'true' }}
         working-directory: kernel_workspace/common
         run: |
-          echo "==> 开始应用 ntsync 补丁..."
-          for PATCH_NAME in "ntsync_base.patch" "ntsync_compat_6.6.patch"; do
-            PATCH_PATH="${GITHUB_WORKSPACE}/patch/${PATCH_NAME}"
-            if [ ! -f "$PATCH_PATH" ]; then
-              echo "::error::未找到 ntsync 补丁: $PATCH_PATH"
-              exit 1
-            fi
-            echo "  应用: $PATCH_NAME"
-            dos2unix "$PATCH_PATH"
-            if ! git apply --ignore-whitespace "$PATCH_PATH"; then
-              echo "::warning::补丁 $PATCH_NAME 应用失败，可能已应用或上下文不匹配"
-            fi
-          done
-          echo "==> ntsync 补丁应用完成"
+          set -e
+          echo "=== 开始注入 NTSync 内核补丁 ==="
+          echo "Kernel 版本: 6.6"
+
+          NTSYNC_PATCH="ntsync_compat_android15-6.6"
+
+          echo "自动选择 NTSync 补丁: ${NTSYNC_PATCH}.patch"
+          wget -q "https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_base.patch"
+          wget -q "https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/${NTSYNC_PATCH}.patch"
+
+          patch -p1 < "ntsync_base.patch"
+          patch -p1 < "${NTSYNC_PATCH}.patch"
+
+          echo "✅ NTSync 补丁应用完成"
 
       # ==================== GameSense V9 ====================
       - name: 🎮 Apply GameSense patches
@@ -566,7 +577,7 @@ jobs:
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
 
           # ==================== Droidspaces 内核配置 ====================
-          if [ "${{ env.ENABLE_DROIDSPACES }}" = "true" ]; then
+          if [ "${{ env.ENABLE_DROIDSPACES }}" != "off" ]; then
             echo "==> 开始配置 Droidspaces 内核选项..."
 
             enable_config() {
@@ -582,10 +593,14 @@ jobs:
               fi
             }
 
+            config_defined() {
+              local name="${1#CONFIG_}"
+              grep -RqsE --include='Kconfig*' "^[[:space:]]*(menuconfig|config)[[:space:]]+${name}$" .
+            }
+
             enable_config_if_defined() {
               local cfg="$1"
-              local name="${cfg#CONFIG_}"
-              if grep -RqsE --include='Kconfig*' "^[[:space:]]*(menuconfig|config)[[:space:]]+${name}$" .; then
+              if config_defined "$cfg"; then
                 enable_config "$cfg"
               else
                 echo "  当前内核未定义: $cfg，跳过"
@@ -612,7 +627,7 @@ jobs:
             enable_config CONFIG_PID_NS
             enable_config CONFIG_DEVTMPFS
 
-            # ---- 网络相关配置 (Docker/NAT 模式, 按 Kconfig 实际存在启用) ----
+            # ---- 网络相关配置 (Docker/NAT 模式) ----
             enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
             enable_config_if_defined CONFIG_NETFILTER_XT_TARGET_LOG
             enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_RECENT
@@ -622,10 +637,23 @@ jobs:
             enable_config_if_defined CONFIG_NETFILTER_XT_SET
             enable_config_if_defined CONFIG_NETFILTER_XT_TARGET_REJECT
             enable_config_if_defined CONFIG_IP_NF_TARGET_REJECT
+
+            # ---- 关闭安卓严格网络控制（GKI 6.6 专用，容器内普通用户联网必需） ----
             disable_config CONFIG_ANDROID_PARANOID_NETWORK
-            echo "CONFIG_NTSYNC=y" >> "$DEFCONFIG"
 
             echo "==> Droidspaces 内核配置完成"
+          fi
+
+          # ==================== NTSync 配置 ====================
+          if [ "${{ env.ENABLE_DROIDSPACES }}" != "off" ] && [ "${{ env.ENABLE_DROIDSPACES_NTSYNC }}" = "true" ]; then
+            echo "==> 正在启用 CONFIG_NTSYNC..."
+            sed -i '/CONFIG_NTSYNC is not set/d' "$DEFCONFIG"
+            if ! grep -q "^CONFIG_NTSYNC=y" "$DEFCONFIG"; then
+              echo "CONFIG_NTSYNC=y" >> "$DEFCONFIG"
+              echo "✅ 已成功启用 CONFIG_NTSYNC"
+            else
+              echo "✅ CONFIG_NTSYNC 已处于启用状态"
+            fi
           fi
 
           # ==================== KSU 配置 (KSU已禁用, 仅保留KPM) ====================
@@ -634,32 +662,11 @@ jobs:
 
           # echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Re-TG@qdykernel"' >> "$DEFCONFIG"
 
-          # ==================== SUSFS 配置 (已禁用) ====================
-          # if [ "${{ env.ENABLE_SUSFS }}" == 'true' ];then
-          #   echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
-          #   echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> "$DEFCONFIG"
-          # else
-          #   echo "未启用SUSFS 跳过SUSFS配置"
-          # fi
-          
-          echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # ==================== SUSFS 配置 (已禁用) =============          echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
 
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
-          
+
           #Remove check_defconfig
           sudo sed -i 's/check_defconfig//' ./common/build.config.gki
 
@@ -777,7 +784,7 @@ jobs:
 
       - name: 🧹 Clean old ccache (清理旧缓存)
         if: env.BUILD_TIME > 480
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           PREFIX: ccache-${{ env.KERNEL_VERSION }}${{ env.CACHE_VARIANT }}-
           CURRENT_KEY: ccache-${{ env.KERNEL_VERSION }}${{ env.CACHE_VARIANT }}-${{ github.run_id }}
@@ -825,17 +832,6 @@ jobs:
 
             core.info(`旧缓存清理完成，共删除 ${deleted} 个缓存`);
 
-      - name: 📦 Apply KPM and patch the kernel (应用KPM并修补内核)
-        if: ${{ env.ENABLE_KPM == 'true' }}
-        run: |
-          echo "正在应用KPM并修补内核..."
-          cd kernel_workspace/common/out/arch/arm64/boot
-          curl -LO https://github.com/ShirkNeko/SukiSU_KernelPatch_patch/releases/download/0.12.2/patch_linux
-          chmod +x patch_linux
-          ./patch_linux
-          rm -f Image
-          mv oImage Image
-          
       - name: 📦 ReName Image  (修改镜像名)
         run: |
           cd kernel_workspace/common/out/arch/arm64/boot
@@ -875,11 +871,11 @@ jobs:
     name: Upload Re-Kernel Module
     if: ${{ github.event.inputs.enable_ReKernel == 'true' }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: 🔎 Find Re-Kernel module zip (查找Re-Kernel最新模块并下载)
         id: download-rekernel
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           KERNEL_MAJOR: "6.6"
         with:
