@@ -537,7 +537,7 @@ jobs:
           fi
           fetch() {
             curl -fLSs -H "Authorization: token ${PATCH_TOKEN}" \
-              "https://raw.githubusercontent.com/${REPO}/${REF}/$1" -o "$2"
+              "https://raw.githubusercontent.com/${REPO}/${REF}/$1?t=${GITHUB_RUN_ID}" -o "$2"
           }
           cd "$KD"
           echo "::group::[GameSense] 应用内核补丁"
@@ -552,6 +552,7 @@ jobs:
           fi
           while read -r p; do
             fetch "patch/Yolo-6.6/$p" "$TMP/$p"
+            echo "  [$p] md5=$(md5sum "$TMP/$p" | cut -d" " -f1) bytes=$(wc -c < "$TMP/$p")"
             head -1 "$TMP/$p" | grep -q '^diff --git ' || {
               echo "::error::$p 下载内容不是补丁 (首行: $(head -c 120 "$TMP/$p"))"; exit 1; }
             if ! patch -p1 --batch --fuzz=0 --dry-run -s -i "$TMP/$p"; then
